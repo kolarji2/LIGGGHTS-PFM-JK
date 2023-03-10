@@ -24,7 +24,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
-#include "compute_contact_atom.h"
+#include "compute_collision_atom.h"
 #include "atom.h"
 #include "update.h"
 #include "modify.h"
@@ -36,13 +36,14 @@
 #include "comm.h"
 #include "memory.h"
 #include "error.h"
+#include "vector_liggghts.h"
 #include "fix_property_atom.h"
 
 using namespace LAMMPS_NS;
 
 /* ---------------------------------------------------------------------- */
 
-ComputeContactAtom::ComputeContactAtom(LAMMPS *lmp, int narg, char **arg) :
+ComputeCollisionAtom::ComputeCollisionAtom(LAMMPS *lmp, int narg, char **arg) :
   Compute(lmp, narg, arg)
 {
 	
@@ -58,18 +59,15 @@ ComputeContactAtom::ComputeContactAtom(LAMMPS *lmp, int narg, char **arg) :
       skin = atof(arg[4]);
   }
   //NP modified C.K. end
-
+  nvalues = 4;
   peratom_flag = 1;
-  size_peratom_cols = 0;
+  size_peratom_cols = nvalues;
   comm_reverse = 1;
 
   nmax = 0;
-  contact = NULL;
+  
+  array = NULL;
 
-	// global couter
-   updFix = NULL;
-   updFix = static_cast<FixPropertyAtom*>(modify->find_fix_id("fppacc"));
-	if (updFix == NULL) error->all(FLERR,"did not find fppacc");
   // error checks
 
   if (!atom->sphere_flag && !atom->superquadric_flag)
@@ -78,23 +76,23 @@ ComputeContactAtom::ComputeContactAtom(LAMMPS *lmp, int narg, char **arg) :
 
 /* ---------------------------------------------------------------------- */
 
-ComputeContactAtom::~ComputeContactAtom()
+ComputeCollisionAtom::~ComputeCollisionAtom()
 {
-  memory->destroy(contact);
+  memory->destroy(array);
 }
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeContactAtom::init()
+void ComputeCollisionAtom::init()
 {
   if (force->pair == NULL)
-    error->all(FLERR,"Compute contact/atom requires a pair style be defined");
+    error->all(FLERR,"Compute collision/atom requires a pair style be defined");
 
   int count = 0;
   for (int i = 0; i < modify->ncompute; i++)
-    if (strcmp(modify->compute[i]->style,"contact/atom") == 0) count++;
+    if (strcmp(modify->compute[i]->style,"collision/atom") == 0) count++;
   if (count > 1 && comm->me == 0)
-    error->warning(FLERR,"More than one compute contact/atom");
+    error->warning(FLERR,"More than one compute collision/atom");
 
   // need an occasional neighbor list
 
@@ -108,7 +106,7 @@ void ComputeContactAtom::init()
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeContactAtom::init_list(int id, NeighList *ptr)
+void ComputeCollisionAtom::init_list(int id, NeighList *ptr)
 {
   list = ptr;
   /*NL*/ //if (screen) fprintf(screen,"list ptr %d\n",ptr);
@@ -116,22 +114,24 @@ void ComputeContactAtom::init_list(int id, NeighList *ptr)
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeContactAtom::compute_peratom()
+void ComputeCollisionAtom::compute_peratom()
 {
   int i,j,ii,jj,inum,jnum;
   double xtmp,ytmp,ztmp,delx,dely,delz,rsq;
   double radi,radsum,radsumsq;
   int *ilist,*jlist,*numneigh,**firstneigh;
-
+  double normal[3],vrel[3],vreln[3],vrelt[3];
+  double vrelnmag0,vreltmag0;
+  
   invoked_peratom = update->ntimestep;
 
   // grow contact array if necessary
 
   if (atom->nmax > nmax) {
-    memory->destroy(contact);
-    nmax = atom->nmax;
-    memory->create(contact,nmax,"contact/atom:contact");
-    vector_atom = contact;
+    memory->destroy(array);
+    nmax = atom->nmax;    
+    memory->create(array,nmax,nvalues,"collision/atom:array");
+    array_atom=array;
   }
 
   // invoke neighbor list (will copy or build if necessary)
@@ -148,12 +148,16 @@ void ComputeContactAtom::compute_peratom()
   // tally for both I and J
 
   double **x = atom->x;
+  double **v = atom->v;
   double *radius = atom->radius;
   int *mask = atom->mask;
   int nlocal = atom->nlocal;
   int nall = nlocal + atom->nghost;
 
-  for (i = 0; i < nall; i++) contact[i] = 0.0;
+  for (i = 0; i < nall; i++) 
+	  for (j=0;j<nvalues;j++)
+			array[i][j] = 0.0;
+  
 
   for (ii = 0; ii < inum; ii++) {
     i = ilist[ii];
@@ -176,11 +180,26 @@ void ComputeContactAtom::compute_peratom()
         radsum = radi + radius[j] + skin; //NP modified C.K.
         radsumsq = radsum*radsum;
         if (rsq <= radsumsq) {
-          contact[i] += 1.0;
-          contact[j] += 1.0;
-          // Global counter of collisions JK  Feb 2022
-          updFix->vector_atom[i] += 1; //sum contacts
-		  updFix->vector_atom[j] += 1; //sum contacts
+			// Count collisions
+          array[i] [0]+= 1.0;
+          array[j][0] += 1.0;
+		  // Contact normal
+        vectorConstruct3D(normal,delx,dely,delz);        
+        vectorNormalize3D(normal);
+        // Relative velocity
+        vectorSubtract3D(v[i],v[j],vrel);    
+        vrelnmag0 = vectorDot3D(vrel,normal); 
+        vectorScalarMult3D(normal,vrelnmag0,vreln);
+        vectorSubtract3D(vrel,vreln,vrelt);
+        vreltmag0=vectorMag3D(vrelt);
+        // save for atom i  
+        array[i] [1]+=abs(vrelnmag0);
+        array[i] [2]+=abs(vreltmag0);
+        array[i] [3]+=radius[j];
+		// save for atom j
+		array[j] [1]+=abs(vrelnmag0);
+        array[j] [2]+=abs(vreltmag0);
+        array[j] [3]+=radi;
         }
       }
     }
@@ -193,27 +212,34 @@ void ComputeContactAtom::compute_peratom()
 
 /* ---------------------------------------------------------------------- */
 
-int ComputeContactAtom::pack_reverse_comm(int n, int first, double *buf)
+int ComputeCollisionAtom::pack_reverse_comm(int n, int first, double *buf)
 {
   int i,m,last;
 
   m = 0;
   last = first + n;
-  for (i = first; i < last; i++)
-    buf[m++] = contact[i];
+  for (i = first; i < last; i++) {
+    buf[m++] = array[i][0];
+    buf[m++] = array[i][1];
+    buf[m++] = array[i][2];
+    buf[m++] = array[i][3];
+}
   return 1;
 }
 
 /* ---------------------------------------------------------------------- */
 
-void ComputeContactAtom::unpack_reverse_comm(int n, int *list, double *buf)
+void ComputeCollisionAtom::unpack_reverse_comm(int n, int *list, double *buf)
 {
   int i,j,m;
 
   m = 0;
   for (i = 0; i < n; i++) {
     j = list[i];
-    contact[j] += buf[m++];
+    array[j][0] += buf[m++];
+    array[j][1] += buf[m++];
+    array[j][2] += buf[m++];
+    array[j][3] += buf[m++];
   }
 }
 
@@ -221,8 +247,8 @@ void ComputeContactAtom::unpack_reverse_comm(int n, int *list, double *buf)
    memory usage of local atom-based array
 ------------------------------------------------------------------------- */
 
-double ComputeContactAtom::memory_usage()
+double ComputeCollisionAtom::memory_usage()
 {
-  double bytes = nmax * sizeof(double);
+  double bytes = nvalues*nmax * sizeof(double);
   return bytes;
 }

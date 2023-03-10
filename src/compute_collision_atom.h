@@ -23,35 +23,39 @@
 
 #ifdef COMPUTE_CLASS
 
-ComputeStyle(coord/gran,ComputeContactAtom)
-ComputeStyle(contact/atom,ComputeContactAtom)
+ComputeStyle(coord/gran,ComputeCollisionAtom)
+ComputeStyle(collision/atom,ComputeCollisionAtom)
 
 #else
 
-#ifndef LMP_COMPUTE_CONTACT_ATOM_H
-#define LMP_COMPUTE_CONTACT_ATOM_H
+#ifndef LMP_COMPUTE_COLLISION_ATOM_H
+#define LMP_COMPUTE_COLLISION_ATOM_H
 
 #include "compute.h"
 #include "fix_property_atom.h"
 
 namespace LAMMPS_NS {
 
-class ComputeContactAtom : public Compute {
+class ComputeCollisionAtom : public Compute {
  public:
-  ComputeContactAtom(class LAMMPS *, int, char **);
-  ~ComputeContactAtom();
+  ComputeCollisionAtom(class LAMMPS *, int, char **);
+  ~ComputeCollisionAtom();
   virtual void init(); //NP modified C.K.
   void init_list(int, class NeighList *);
   virtual void compute_peratom(); //NP modified C.K.
   int pack_reverse_comm(int, int, double *);
   void unpack_reverse_comm(int, int *, double *);
   double memory_usage();
- class FixPropertyAtom* updFix;
- 
+
+  int nvalues;
  protected: //NP modified C.K.
   int nmax;
   class NeighList *list;
-  double *contact;
+   //0 number of collisions
+  //1 sum of normal parts of relative velocity with respect to particles contact (center to center vector)
+   //2 sum of tangential parts of relative velocity with respect to particles contact (center to center vector)
+   //3 sum of radii that collided with particle
+  double **array; 
   double skin; //NP modified C.K.
 };
 
@@ -68,16 +72,16 @@ Self-explanatory.  Check the input script syntax and compare to the
 documentation for the command.  You can use -echo screen as a
 command-line option when running LAMMPS to see the offending line.
 
-E: Compute contact/atom requires atom style sphere
+E: Compute collision/atom requires atom style sphere
 
 Self-explanatory.
 
-E: Compute contact/atom requires a pair style be defined
+E: Compute collision/atom requires a pair style be defined
 
 Self-explantory.
 
-W: More than one compute contact/atom
+W: More than one compute collision/atom
 
-It is not efficient to use compute contact/atom more than once.
+It is not efficient to use compute collision/atom more than once.
 
 */

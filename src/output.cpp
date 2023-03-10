@@ -189,6 +189,12 @@ void Output::setup(int memflag)
       if (every_dump[idump] && ntimestep % every_dump[idump] == 0 &&
           last_dump[idump] != ntimestep) writeflag = 1;
       if (last_dump[idump] < 0 && dump[idump]->first_flag == 1) writeflag = 1;
+      
+      // Skip dump if first_flag is false
+       if (dump[idump]->first_flag == 0) {
+		 writeflag = 0;
+        last_dump[idump] = ntimestep;
+      }
 
       if (writeflag) {
         dump[idump]->write();
