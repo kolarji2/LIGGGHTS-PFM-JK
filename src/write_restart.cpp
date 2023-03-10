@@ -20,7 +20,7 @@
 
    See the README file in the top-level directory.
 ------------------------------------------------------------------------- */
-
+#include <iostream>
 #include "lmptype.h"
 #include <mpi.h>
 #include <string.h>
@@ -368,6 +368,7 @@ void WriteRestart::header()
   write_int(BIGINT,sizeof(bigint));
   write_char(UNITS,update->unit_style);
   write_bigint(NTIMESTEP,update->ntimestep);
+  std::cout << update->ntimestep << "=======WRITE =========\n";
   write_int(DIMENSION,domain->dimension);
   write_int(NPROCS,nprocs);
   write_int(PROCGRID_0,comm->procgrid[0]);

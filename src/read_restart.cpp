@@ -10,7 +10,7 @@
 
    See the README file in the top-level LAMMPS directory.
 ------------------------------------------------------------------------- */
-
+#include <iostream>
 #include "lmptype.h"
 #include <mpi.h>
 #include <string.h>
@@ -499,7 +499,7 @@ void ReadRestart::header()
 
     } else if (flag == NTIMESTEP) {
       update->ntimestep = read_bigint();
-
+		std::cout << update->ntimestep << "======READ ==========\n";
       // set dimension from restart file
 
     } else if (flag == DIMENSION) {
